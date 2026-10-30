@@ -1,0 +1,3 @@
+name: dense-only
+search: {dense_k: 100, sparse_k: 0, rerank: false, final_k: 10}
+agent: {grade: true, max_retries: 0}

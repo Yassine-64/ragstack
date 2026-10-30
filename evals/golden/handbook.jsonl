@@ -1,0 +1,16 @@
+# One case per line. user ids: alice (engineering), bob (finance), carol (hr), dave (no groups).
+{"id": "hours-1", "question": "What are the core hours when everyone must be reachable?", "user_id": "dave", "expected_answer": "Core hours are 10:00 to 16:00.", "relevant_document_ids": ["employee-handbook.md"]}
+{"id": "remote-1", "question": "How many days per week can I work remotely?", "user_id": "dave", "expected_answer": "Up to three days per week.", "relevant_document_ids": ["employee-handbook.md"]}
+{"id": "leave-1", "question": "How many unused leave days can be carried over to next year?", "user_id": "alice", "expected_answer": "Up to 5 unused days, usable in the first quarter.", "relevant_document_ids": ["employee-handbook.md"]}
+{"id": "mfa-1", "question": "Who gets a hardware security key?", "user_id": "bob", "expected_answer": "Engineers and finance staff receive YubiKey 5 hardware keys.", "relevant_document_ids": ["it-security-policy.md"]}
+{"id": "password-1", "question": "How often must passwords be rotated?", "user_id": "carol", "expected_answer": "Every 180 days.", "relevant_document_ids": ["it-security-policy.md"]}
+{"id": "rollback-1", "question": "What command rolls back a service deployment?", "user_id": "alice", "expected_answer": "deployctl rollback <service> --to <previous-tag>", "relevant_document_ids": ["deployment-runbook.md"]}
+{"id": "release-1", "question": "On which days do releases go out?", "user_id": "alice", "expected_answer": "Tuesdays and Thursdays.", "relevant_document_ids": ["deployment-runbook.md"]}
+{"id": "adr-1", "question": "Why was Kafka rejected for the event bus?", "user_id": "alice", "expected_answer": "Because of operational cost at our scale; NATS JetStream was chosen.", "relevant_document_ids": ["architecture-decisions.md"]}
+{"id": "expense-1", "question": "Who approves an expense of 20,000 EUR?", "user_id": "bob", "expected_answer": "The CFO (above 5,000 EUR and below 50,000 EUR).", "relevant_document_ids": ["expense-approval-matrix.md"]}
+{"id": "salary-1", "question": "What is the level 2 engineering salary band?", "user_id": "bob", "expected_answer": "55,000 to 72,000 EUR.", "relevant_document_ids": ["expense-approval-matrix.md"]}
+{"id": "review-1", "question": "When do performance reviews happen?", "user_id": "carol", "expected_answer": "Twice a year, in June and December.", "relevant_document_ids": ["performance-review-process.md"]}
+{"id": "leak-salary", "question": "What is the level 2 engineering salary band?", "user_id": "alice", "should_refuse": true, "forbidden_document_ids": ["expense-approval-matrix.md"], "tags": ["acl"]}
+{"id": "leak-rollback", "question": "What command rolls back a service deployment?", "user_id": "bob", "should_refuse": true, "forbidden_document_ids": ["deployment-runbook.md"], "tags": ["acl"]}
+{"id": "leak-warning", "question": "How long is a formal warning valid?", "user_id": "dave", "should_refuse": true, "forbidden_document_ids": ["performance-review-process.md"], "tags": ["acl"]}
+{"id": "ood-1", "question": "What is the capital of Mongolia?", "user_id": "alice", "should_refuse": true, "tags": ["out-of-domain"]}

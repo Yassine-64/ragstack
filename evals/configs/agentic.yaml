@@ -1,0 +1,4 @@
+name: hybrid-rerank-agentic
+search: {dense_k: 100, sparse_k: 100, rerank: true, rerank_top_n: 50, final_k: 10}
+query: {rewrite: true}
+agent: {grade: true, max_retries: 2}

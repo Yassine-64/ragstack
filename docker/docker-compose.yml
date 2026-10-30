@@ -1,0 +1,26 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: ragstack
+      POSTGRES_PASSWORD: ragstack
+      POSTGRES_DB: ragstack
+    ports: ["5433:5432"]
+    volumes: ["../.data/pg:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ragstack -d ragstack"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    depends_on:
+      postgres: { condition: service_healthy }
+    env_file: [../.env]
+    environment:
+      RAGSTACK_DATABASE_URL: postgresql://ragstack:ragstack@postgres:5432/ragstack
+    ports: ["8080:8080"]
+    volumes: ["../evals:/app/evals"]
