@@ -56,13 +56,36 @@ same ports, so the whole pipeline including the agent loop runs in CI with no AP
 model download. Design notes and the data model: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ```mermaid
-flowchart LR
-    Q[question] --> P[query planner<br/>rewrite · multi-query · HyDE]
-    P --> H[("Postgres<br/>ACL CTE ∩ dense ∪ sparse")]
-    H --> F["RRF k=60"] --> R["rerank 150→20"] --> G{"grade<br/>enough evidence?"}
-    G -- no, retries left --> W[rewrite] --> H
-    G -- yes --> A["grounded answer<br/>cite with [n]"] --> V["verify citations ⊂ evidence"] --> OUT["Answer or refusal"]
-    A --> AU[("audit: who saw what")]
+flowchart TB
+    subgraph ingest["Ingestion (once per document)"]
+        direction LR
+        F["file<br/>pdf · docx · xlsx · md"] --> DP["docparse<br/>blocks + page + bbox"]
+        DP --> CH["chunker<br/>section-aware"] --> CX["contextualizer<br/>LLM prefix (optional)"] --> EMB["embedder"]
+    end
+
+    subgraph store["Postgres + pgvector (the only datastore)"]
+        direction LR
+        T[("chunks<br/>text · context · vector · tsvector")]
+        G[("access_grants<br/>user · group · everyone")]
+        AUD[("queries · retrievals<br/>audit trail")]
+        EV[("eval_runs")]
+    end
+
+    subgraph ask["Query (per question)"]
+        direction LR
+        Q["question<br/>+ X-User-Id"] --> PL["query planner<br/>rewrite · multi-query · HyDE"]
+        PL --> HS["hybrid search<br/>one SQL: visible CTE ∩ (dense ∪ sparse)"]
+        HS --> RRF["RRF k=60"] --> RR["rerank<br/>150 → 20"] --> GR{"grade<br/>enough evidence?"}
+        GR -- "no, retry left" --> RW["rewrite"] --> HS
+        GR -- yes --> GEN["grounded answer<br/>cite with [n]"] --> VF["verify citations<br/>⊂ shown evidence"] --> OUT["answer<br/>or refusal"]
+    end
+
+    EMB --> T
+    HS -. "ACL resolved<br/>server-side" .-> G
+    HS --> T
+    OUT --> AUD
+    EVAL["ragstack eval<br/>recall · nDCG · faithfulness · leak rate"] --> ask
+    EVAL --> EV
 ```
 
 ## Quick start
