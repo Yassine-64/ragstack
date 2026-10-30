@@ -30,7 +30,7 @@ filtered out after retrieval, it was never retrieved, never ranked, never logged
 | contextual chunks | optional LLM-written situating sentence prepended before embedding and indexing (Anthropic's contextual retrieval) |
 | query planning | optional rewrite, multi-query paraphrases, HyDE, each a flag |
 | agentic loop | retrieve → grade evidence → rewrite → retry (bounded), then answer; explicit state machine, no framework |
-| grounded generation | `[n]` citations verified against the evidence actually shown; refusal below an evidence threshold; `NOT_IN_DOCS` honoured |
+| grounded generation | every `[n]` must name a passage the model was actually shown, else it is dropped; an answer left with no valid citation is refused, as is weak evidence or `NOT_IN_DOCS`. Whether the cited passage *supports* the sentence is measured by the eval judge (citation precision), not checked at runtime |
 | audit | every question and every chunk shown to whom; `GET /v1/documents/{id}/exposures` |
 | evals | recall@k, MRR, nDCG, faithfulness, citation precision, correctness, refusal correctness, **leak rate**, latency, cost; configs compared in one table; any leak fails CI |
 | provenance | ingestion through docparse: each chunk keeps page + normalized bbox, so a citation points at a rectangle on a page |
@@ -41,7 +41,7 @@ filtered out after retrieval, it was never retrieved, never ranked, never logged
 src/ragstack/
 ├── domain/            models (Document, Chunk, AccessGrant, Principal, RetrievedChunk, Answer, Trace, EvalCase)
 │                      ports (Embedder, Reranker, LLM, SearchIndex, repositories, DocumentParser)
-│                      services (RRF fusion, citation verification)       ← pure, no I/O
+│                      services (RRF fusion, citation reference checks)       ← pure, no I/O
 ├── application/       config (RetrievalConfig = the experiment), ingestion, retrieval, generation,
 │                      agent loop, evaluation (metrics, judge, runner, report), use cases
 ├── infrastructure/    db (schema, pool, migrations), repositories (Postgres + the hybrid CTE),
@@ -77,7 +77,7 @@ flowchart TB
         PL --> HS["hybrid search<br/>one SQL: visible CTE ∩ (dense ∪ sparse)"]
         HS --> RRF["RRF k=60"] --> RR["rerank<br/>150 → 20"] --> GR{"grade<br/>enough evidence?"}
         GR -- "no, retry left" --> RW["rewrite"] --> HS
-        GR -- yes --> GEN["grounded answer<br/>cite with [n]"] --> VF["verify citations<br/>⊂ shown evidence"] --> OUT["answer<br/>or refusal"]
+        GR -- yes --> GEN["grounded answer<br/>cite with [n]"] --> VF["check citations<br/>name shown passages"] --> OUT["answer<br/>or refusal"]
     end
 
     EMB --> T
@@ -177,12 +177,22 @@ judge `claude-opus-5-5`:
 | bm25-only (k=10) | 0.273 | 0.158 | 0.000 | 88% | 7/7 | **0.000** | 1983 | $0.010 |
 | hybrid-rrf (k=10) | 0.212 | 0.101 | 0.113 | 73% | 7/7 | **0.000** | 2035 | $0.013 |
 | hybrid-rerank (k=10) | 0.364 | 0.194 | 0.191 | 64% | 7/7 | **0.000** | 6956 | $0.013 |
-| **hybrid, k=30** | **0.652** | 0.232 | **0.529** | 27% | 7/7 | **0.000** | 5026 | $0.060 |
+| hybrid, k=30 | 0.652 | 0.232 | 0.529 | 27% | 7/7 | **0.000** | 5026 | $0.060 |
+| **claude-retrieval (k=20)** | **0.838** | **0.406** | **0.660** | 21% | 7/7 | **0.000** | 17589 | $0.102¹ |
+
+¹ Excludes the Haiku reranking tokens (about 10k per retrieval attempt), which this column does not
+yet count. `claude-retrieval` = Haiku listwise rerank of 60 candidates, query rewrite, two
+paraphrases, HyDE, neighbouring chunks, up to two retries.
 
 What it says:
 
 - **Permissions hold on real filings.** Every cross-company question was refused and no filing
   ever reached the wrong analyst, in every config.
+- **Claude inside retrieval is what moves it.** An LLM reranker that knows "purchases of property
+  and equipment" is capital expenditure finds the right page 84% of the time and lifts correct
+  answers to 66%, against 53% for simply widening the window. It costs 3.5x the latency of the
+  k=30 config. Which of its five parts earns that is not measured yet: the next step is an
+  ablation that switches each one off, and whatever does not pay for its latency gets cut.
 - **Ten chunks is too few for a 10-K.** With ten chunks the grader correctly finds the needed
   table missing and the system refuses rather than invent a number. Thirty chunks lifts the
   right page into the window 65% of the time and correct answers to 53%. For scale, the
@@ -194,22 +204,21 @@ What it says:
   checkboxes as NUL characters, which collided with an internal marker. Fixed with a regression
   test in docparse.
 
-Next config, built and not yet measured on all 40 cases: `claude-retrieval` puts Claude inside
-retrieval. Haiku reranks 60 candidates listwise, and the question is rewritten, paraphrased and
-expanded with HyDE. Neighbouring chunks are pulled in so split tables arrive whole. On a 3M
-segment question that every k=10 config refused, it answered with the organic-sales table cited.
-That is one question, not a result.
+Open: the faithfulness judge returned no parseable score on these long-evidence cases, so that
+column is left out here rather than guessed.
 
 ## Status
 
 - [x] hybrid search with ACL in the statement, RRF, reranking, sibling expansion
 - [x] contextual chunks, query rewrite / multi-query / HyDE, agentic grade-rewrite-retry
-- [x] grounded answers with verified citations, refusal, audit trail
+- [x] grounded answers, citation references checked against shown evidence, refusal, audit trail
 - [x] eval harness with leak gate in CI; 17 tests against real pgvector
 - [x] BEIR adapter (`make beir`), SciFact table above; real BM25 via ParadeDB `pg_search`
 - [ ] reranker that helps on SciFact (bge-reranker on a GPU, or Cohere), full 300-claim run
 - [x] FinanceBench: six real 10-Ks via docparse, page-level recall, cross-company ACL cases
-- [ ] `claude-retrieval` (LLM rerank + HyDE + siblings) measured on all 40 FinanceBench cases
+- [x] `claude-retrieval` (LLM rerank + HyDE + siblings) on FinanceBench: 66% correct, 0 leaks
+- [ ] ablation of `claude-retrieval`: drop each part, keep only what pays for its latency
+- [ ] scale benchmark: millions of synthetic chunks, many tenants, ACL selectivity vs HNSW plans
 - [ ] judge calibration: 50 human-labelled cases, Cohen's κ against the LLM judge
 - [ ] knowledge-graph retrieval mode (LightRAG-style local/global) behind the same `SearchIndex` port
 - [ ] streaming answers, Redis cache for repeated questions

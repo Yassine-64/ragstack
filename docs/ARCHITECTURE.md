@@ -25,7 +25,7 @@ ask:     question ─query planner─▶ {rewritten, sub-queries, hyde?}
          ─RRF (k=60)─▶ fused ─reranker (top 150 → 20)─▶ evidence
          ─evidence grader─▶ enough? ──no──▶ rewrite & retry (≤ N) ──┐
                              │yes                                   │
-         ─grounded answerer (citations [n])─▶ verify citations ⊂ evidence ─▶ Answer | Refusal
+         ─grounded answerer (citations [n])─▶ check each [n] names a shown passage ─▶ Answer | Refusal
          ─audit (who saw which chunk) ─trace (timings, tokens, cost)
 ```
 
@@ -33,23 +33,25 @@ ask:     question ─query planner─▶ {rewritten, sub-queries, hyde?}
 
 | layer | contents | may import |
 |---|---|---|
-| `domain` | models (Document, Chunk, AccessGrant, Principal, RetrievedChunk, Answer, Citation, Trace, eval cases), ports (Embedder, Reranker, LLM, DocumentParser, repositories, SearchIndex), pure services (RRF fusion, citation parsing/verification, text normalisation) | stdlib, pydantic |
+| `domain` | models (Document, Chunk, AccessGrant, Principal, RetrievedChunk, Answer, Citation, Trace, eval cases), ports (Embedder, Reranker, LLM, DocumentParser, repositories, SearchIndex), pure services (RRF fusion, citation parsing and reference checks, text normalisation) | stdlib, pydantic |
 | `application` | use cases (IngestDocument, Ask, Search, RunEval), pipeline stages (ingestion, retrieval, generation, agent loop), evaluation metrics and runner, `RetrievalConfig` | domain |
 | `infrastructure` | Postgres repositories + the hybrid search CTE, migrations, embedders (fastembed, OpenAI, hashing fake), rerankers (fastembed cross-encoder, Cohere, none), LLMs (Anthropic, OpenAI, scripted fake), docparse parser adapter, settings, DI container | application, domain |
 | `interfaces` | FastAPI routers + schemas + dependencies, Typer commands | application via container |
 
 ## 4. Data model (Postgres)
 
+Tenants and groups are implicit: a tenant is the `tenant_id` value, a group exists while it has
+members. Only migrations under `infrastructure/db/migrations` define the schema; this list mirrors them.
+
 ```
-tenants(id)
-users(id, tenant_id)                         groups(id, tenant_id)        group_members(group_id, user_id)
+users(tenant_id, id)                         group_members(tenant_id, group_id, user_id)
 documents(id, tenant_id, source_name, media_type, metadata jsonb, created_at, deleted_at)
 access_grants(document_id, principal_type user|group|everyone, principal_id)   -- deny by default
-chunks(id, document_id, idx, section_path text[], page, bbox jsonb, text, context, token_count,
-       embedding vector(D), parent_id)   -- BM25 index over (context || ' ' || text)
-queries(id, tenant_id, user_id, question, config jsonb, trace jsonb, created_at)
-retrievals(query_id, chunk_id, rank, scores jsonb)        -- audit: who was shown what
-eval_runs(id, name, config jsonb, metrics jsonb, created_at)
+chunks(id, document_id, idx, section_path text[], page, bbox jsonb, context, text, token_count,
+       metadata jsonb, embedding vector(D))   -- HNSW on embedding; BM25 on (context || ' ' || text)
+queries(id, tenant_id, user_id, question, trace jsonb, created_at)    -- trace holds config + scores
+retrievals(query_id, chunk_id, rank)                     -- audit: who was shown what
+eval_runs(id, name, config jsonb, metrics jsonb, per_case jsonb, created_at)
 ```
 
 Hybrid search is one statement: resolve the caller's principals → `visible` CTE of document ids →
