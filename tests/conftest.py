@@ -25,7 +25,7 @@ def database_url() -> Iterator[str]:
     except ImportError:  # pragma: no cover
         pytest.skip("no RAGSTACK_TEST_DATABASE_URL and testcontainers not installed")
     with PostgresContainer(
-        "pgvector/pgvector:pg16", username="ragstack", password="ragstack", dbname="ragstack"
+        "paradedb/paradedb:0.26.2-pg16", username="ragstack", password="ragstack", dbname="ragstack"
     ) as pg:
         yield pg.get_connection_url().replace("postgresql+psycopg2://", "postgresql://")
 

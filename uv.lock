@@ -575,7 +575,7 @@ wheels = [
 [[package]]
 name = "docparse"
 version = "0.1.0"
-source = { git = "https://github.com/Yassine-64/docparse.git#5b75bc10eab19ce4f1e28bcdc323d76a91cfc727" }
+source = { git = "https://github.com/Yassine-64/docparse.git#f75ed787d4f6084402d4a07e7526fa532b3c5233" }
 dependencies = [
     { name = "httpx" },
     { name = "openpyxl" },

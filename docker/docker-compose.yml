@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: pgvector/pgvector:pg16
+    image: paradedb/paradedb:0.26.2-pg16
     environment:
       POSTGRES_USER: ragstack
       POSTGRES_PASSWORD: ragstack

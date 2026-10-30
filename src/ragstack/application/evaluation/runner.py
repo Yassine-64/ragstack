@@ -64,7 +64,16 @@ class EvalRunner:
                 "leak_rate": leak_rate(doc_ids, forbidden_docs) if forbidden_docs else None,
                 "refusal_correct": refusal_correct(result.answer.refused, case.should_refuse),
             }
-            if relevant_chunks:
+            if case.relevant_pages:
+                # page-level: the honest metric for PDFs, where every question hits "the 10-K" anyway
+                want = {f"{src}#p{pg}" for src, pages in case.relevant_pages.items() for pg in pages}
+                got = list(dict.fromkeys(f"{rc.source_name}#p{rc.chunk.page}" for rc in result.evidence))
+                row |= {
+                    "recall@k": recall_at_k(got, want, self.k),
+                    "mrr": mrr(got, want),
+                    "ndcg@k": ndcg_at_k(got, want, self.k),
+                }
+            elif relevant_chunks:
                 row |= {
                     "recall@k": recall_at_k(chunk_ids, relevant_chunks, self.k),
                     "mrr": mrr(chunk_ids, relevant_chunks),

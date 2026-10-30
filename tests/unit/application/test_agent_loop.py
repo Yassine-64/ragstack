@@ -88,3 +88,15 @@ async def test_grading_disabled_answers_directly():
     )
     answer, _, _ = await agent.run(PRINCIPAL, "What is the rollback command?")
     assert not answer.refused and answer.evidence_score == 1.0
+
+
+class SilentLLM(ScriptedLLM):
+    """Returns nothing for every prompt, as a real model did once for a rewrite."""
+
+    def _route(self, prompt, system):
+        return ""
+
+
+async def test_empty_rewrite_falls_back_to_the_question():
+    plan = await QueryPlanner(SilentLLM(), QueryConfig(rewrite=True, hyde=True)).plan("rollback command?")
+    assert plan.queries == ["rollback command?"] and plan.hyde_text is None

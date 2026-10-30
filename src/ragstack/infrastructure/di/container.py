@@ -89,6 +89,14 @@ class Container:
             from ragstack.infrastructure.rerankers.fastembed import FastembedReranker
 
             return FastembedReranker(s.fastembed_reranker_model)
+        if s.reranker == "llm":
+            from ragstack.infrastructure.rerankers.llm import LlmReranker
+
+            if s.anthropic_api_key:
+                from ragstack.infrastructure.llm.anthropic import AnthropicLLM
+
+                return LlmReranker(AnthropicLLM(s.anthropic_api_key, s.rerank_model))
+            return LlmReranker(self.llm)
         if s.reranker == "lexical":
             from ragstack.infrastructure.rerankers.lexical import LexicalReranker
 

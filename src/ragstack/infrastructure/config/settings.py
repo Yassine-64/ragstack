@@ -20,7 +20,10 @@ class Settings(BaseSettings):
     openai_embedding_model: str = "text-embedding-3-small"
     openai_chat_model: str = "gpt-4o-mini"
 
-    reranker: str = Field(default="fastembed", description="fastembed | cohere | none")
+    reranker: str = Field(default="fastembed", description="fastembed | llm | cohere | lexical | none")
+    rerank_model: str = Field(
+        default="claude-haiku-5-5", description="model for reranker=llm (Anthropic); small and fast"
+    )
     fastembed_reranker_model: str = "Xenova/ms-marco-MiniLM-L-6-v2"
     cohere_api_key: str | None = None
 

@@ -41,7 +41,9 @@ class QueryPlanner:
             return plan
         if self.config.rewrite:
             out = await self.llm.complete([ChatMessage("user", _REWRITE.format(q=question))], max_tokens=120)
-            plan.queries = [out.text.strip().splitlines()[0] or question]
+            # an empty or refused rewrite must never replace the question with nothing
+            first = next((ln.strip() for ln in out.text.splitlines() if ln.strip()), "")
+            plan.queries = [first or question]
             plan.input_tokens, plan.output_tokens = (
                 plan.input_tokens + out.input_tokens,
                 plan.output_tokens + out.output_tokens,
@@ -60,7 +62,7 @@ class QueryPlanner:
             )
         if self.config.hyde:
             out = await self.llm.complete([ChatMessage("user", _HYDE.format(q=question))], max_tokens=250)
-            plan.hyde_text = out.text.strip()
+            plan.hyde_text = out.text.strip() or None
             plan.input_tokens, plan.output_tokens = (
                 plan.input_tokens + out.input_tokens,
                 plan.output_tokens + out.output_tokens,

@@ -13,8 +13,10 @@ MIGRATIONS = Path(__file__).parent / "migrations"
 
 async def _configure(conn: AsyncConnection) -> None:
     """Runs on every new pooled connection. The extension must exist before the type can be registered,
-    and the first connection arrives before any migration has run, so create it here (idempotent)."""
+    and the first connection arrives before any migration has run, so create it here (idempotent).
+    pg_search warns on every join it cannot push down (our ACL join), so its planner warnings are off."""
     await conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
+    await conn.execute("SET paradedb.planner_warnings = 'Off'")
     await conn.commit()
     await register_vector_async(conn)
 

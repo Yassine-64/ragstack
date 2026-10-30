@@ -35,12 +35,15 @@ dense AS (
     ORDER BY c.embedding <=> %(qvec)s::vector
     LIMIT %(dense_k)s
 ),
+-- BM25 over context + text (index chunks_bm25_idx). `|||` tokenizes the raw question and matches any
+-- term, so user text needs no escaping. ponytail: IDF comes from the whole table, not one tenant;
+-- partition chunks by tenant if corpus statistics must not cross tenants.
 sparse AS (
-    SELECT c.id, ts_rank_cd(c.tsv, q) AS score,
-           row_number() OVER (ORDER BY ts_rank_cd(c.tsv, q) DESC) AS rank
-    FROM chunks c JOIN visible v ON v.id = c.document_id, websearch_to_tsquery('simple', %(qtext)s) q
-    WHERE %(sparse_k)s > 0 AND c.tsv @@ q
-    ORDER BY ts_rank_cd(c.tsv, q) DESC
+    SELECT c.id, pdb.score(c.id) AS score,
+           row_number() OVER (ORDER BY pdb.score(c.id) DESC) AS rank
+    FROM chunks c JOIN visible v ON v.id = c.document_id
+    WHERE %(sparse_k)s > 0 AND (c.context || ' ' || c.text) ||| %(qtext)s
+    ORDER BY pdb.score(c.id) DESC
     LIMIT %(sparse_k)s
 ),
 candidates AS (

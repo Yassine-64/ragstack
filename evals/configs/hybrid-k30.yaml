@@ -1,0 +1,3 @@
+name: hybrid-k30
+search: {dense_k: 150, sparse_k: 150, rerank: false, final_k: 30}
+agent: {grade: true, max_retries: 1}

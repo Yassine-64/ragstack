@@ -1,0 +1,7 @@
+# Claude inside retrieval, not just generation: paraphrases + HyDE widen recall, a listwise LLM
+# reranker (claude-haiku-5-5) picks the 20 best of 60, neighbours restore split tables.
+name: claude-retrieval
+search: {dense_k: 150, sparse_k: 150, rerank: true, rerank_top_n: 60, final_k: 20, expand_siblings: 1}
+query: {rewrite: true, multi_query: 2, hyde: true}
+agent: {grade: true, max_retries: 2}
+generation: {max_evidence_chars: 1600}

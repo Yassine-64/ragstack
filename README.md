@@ -1,7 +1,7 @@
 # ragstack
 
 Permission-aware hybrid RAG where every design knob is a config value and every config gets a
-number. Postgres + pgvector only. Access control is enforced inside the retrieval SQL, answers
+number. One Postgres (pgvector + ParadeDB `pg_search` for BM25), nothing else. Access control is enforced inside the retrieval SQL, answers
 cite the chunks they were built from (down to page and bounding box, via
 [docparse](https://github.com/Yassine-64/docparse)), weak evidence refuses instead of guessing,
 and `ragstack eval` prints the comparison table that this README's numbers come from.
@@ -24,7 +24,7 @@ filtered out after retrieval, it was never retrieved, never ranked, never logged
 
 | capability | how |
 |---|---|
-| hybrid retrieval | pgvector cosine top-N ∪ Postgres full-text (`ts_rank_cd`) top-N in **one SQL statement**, fused with Reciprocal Rank Fusion (k=60) in the domain layer |
+| hybrid retrieval | pgvector cosine top-N ∪ BM25 top-N (ParadeDB `pg_search`, English stemming + stopwords) in **one SQL statement**, fused with Reciprocal Rank Fusion (k=60) in the domain layer |
 | ACL inside the query | `visible` CTE: tenant ∩ not-deleted ∩ grant to user, group or everyone. Deny by default. Groups resolved from the database, never from the request |
 | reranking | cross-encoder top 150 → 20 (fastembed `ms-marco-MiniLM` on CPU, or Cohere) |
 | contextual chunks | optional LLM-written situating sentence prepended before embedding and indexing (Anthropic's contextual retrieval) |
@@ -65,7 +65,7 @@ flowchart TB
 
     subgraph store["Postgres + pgvector (the only datastore)"]
         direction LR
-        T[("chunks<br/>text · context · vector · tsvector")]
+        T[("chunks<br/>text · context · vector · BM25 index")]
         G[("access_grants<br/>user · group · everyone")]
         AUD[("queries · retrievals<br/>audit trail")]
         EV[("eval_runs")]
@@ -91,7 +91,7 @@ flowchart TB
 ## Quick start
 
 ```bash
-make db           # pgvector Postgres on :5433 (docker compose)
+make db           # Postgres (ParadeDB image: pgvector + pg_search) on :5433
 uv sync --all-extras
 cp .env.example .env            # defaults: fastembed embeddings + reranker, no LLM key → scripted LLM
 make seed         # 4 users in 3 groups, 6 documents with ACLs (evals/corpus)
@@ -113,26 +113,92 @@ Golden set: [`evals/golden/handbook.jsonl`](evals/golden/handbook.jsonl), 15 cas
 corpus: 11 answerable questions with expected answers and relevant documents, 3 ACL cases where
 the asking user must be refused and the document must never appear, 1 out-of-domain question.
 
-`ragstack eval` runs each config and prints:
+`ragstack eval` runs each config and prints (generation `claude-sonnet-5-5`, judge
+`claude-opus-5-5`, embeddings `bge-small-en-v1.5`, BM25 via pg_search, laptop CPU):
 
-| config | recall@10 | MRR | nDCG@10 | faithfulness | citation precision | correctness | refusal correct | leak rate | p50 ms |
-|---|---|---|---|---|---|---|---|---|---|
-| dense-only | 1.000 | 1.000 | 1.000 | 0.900 | 0.933 | 0.834 | 0.933 | **0.000** | 10 |
-| hybrid-rrf | 1.000 | 1.000 | 1.000 | 0.900 | 0.933 | 0.834 | 0.933 | **0.000** | 10 |
-| hybrid-rerank | 1.000 | 1.000 | 1.000 | 0.900 | 0.933 | 0.834 | 0.933 | **0.000** | 82 |
-| hybrid-rerank-agentic | 1.000 | 1.000 | 1.000 | 0.900 | 0.933 | 0.834 | 0.933 | **0.000** | 102 |
+| config | recall@10 | faithfulness | citation precision | correctness | refusal correct | leak rate | p50 ms | $/query |
+|---|---|---|---|---|---|---|---|---|
+| dense-only | 1.000 | 1.000 | 1.000 | 0.989 | 1.000 | **0.000** | 3035 | $0.0054 |
+| bm25-only | 1.000 | 1.000 | 1.000 | 0.989 | 1.000 | **0.000** | 2949 | $0.0033 |
+| hybrid-rrf | 1.000 | 1.000 | 1.000 | 0.986 | 1.000 | **0.000** | 2879 | $0.0054 |
+| hybrid-rerank | 1.000 | 1.000 | 1.000 | 0.980 | 1.000 | **0.000** | 3347 | $0.0055 |
+| hybrid-rerank-agentic | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 | **0.000** | 5364 | $0.0089 |
 
-*Embeddings `BAAI/bge-small-en-v1.5`, reranker `Xenova/ms-marco-MiniLM-L-6-v2`, generation and
-judging by the offline scripted LLM, Apple M-series CPU.*
+Read it honestly: six short documents saturate retrieval, so every config finds the right chunk
+and the generation columns only say that Claude, given the right passage, answers from it and
+cites it. What this table does prove is the safety property (every ACL case refused, zero leaks,
+enforced by CI) and that the harness runs end to end with a real model and a real judge. The
+retrieval columns separate on the two harder corpora below. Tables are generated from
+`evals/runs*/latest.md`, never typed by hand.
 
-Read it honestly: the demo corpus is six short documents, so retrieval saturates and the four
-configs tie on recall. What the table does prove is the safety property (zero leaks across every
-config, enforced by CI) and the harness itself. The generation columns will move once a real LLM
-is the judge, and the retrieval columns will separate on a harder corpus. Both are the next items
-below, and the table is regenerated from `evals/runs/latest.md`, never typed by hand.
+Offline (CI): the hashing embedder and the scripted LLM run the same 15 cases with zero keys;
+that run is the leak gate, not a quality claim.
 
-With the offline hashing embedder (what CI runs) the same four configs give recall 1.0, MRR 0.86 →
-0.91 with reranking, nDCG 0.90 → 0.93: even a lexical double shows the reranker's effect.
+### BEIR SciFact: where the configs separate
+
+`make beir` downloads [SciFact](https://github.com/beir-cellar/beir) (5,183 abstracts, 300 test
+claims with expert relevance labels), ingests it, and runs the configs. Retrieval only:
+
+| config | recall@10 | MRR | nDCG@10 | p50 ms |
+|---|---|---|---|---|
+| dense-only (bge-small) | 0.835 | 0.669 | 0.706 | 50 |
+| bm25-only (pg_search) | 0.799 | 0.638 | 0.672 | 37 |
+| **hybrid-rrf** | 0.828 | **0.683** | **0.714** | 206 |
+
+Both single retrievers land where published numbers say they should: BM25 0.665 in the
+[BEIR paper](https://arxiv.org/abs/2104.08663), bge-small-en-v1.5 0.713 in
+[this BEIR comparison](https://arxiv.org/abs/2510.14880). Fusion adds about one point of nDCG
+and 1.4 of MRR.
+
+Two things this benchmark caught that the demo corpus could not:
+
+- **Sparse search was silently empty.** The first version used Postgres `websearch_to_tsquery`,
+  which ANDs every word, so a 15-word claim matched no abstract and "hybrid" equalled dense to
+  three decimals. ORing the terms fixed recall but `ts_rank_cd` has no IDF, and hybrid dropped
+  to 0.581. Real BM25 (ParadeDB `pg_search`) is what made fusion pay. A regression test pins it.
+- **The reranker hurts here.** On a 20-claim probe, hybrid scores 0.804 nDCG and hybrid +
+  `ms-marco-MiniLM-L-6` scores 0.732, at about 5 s per query on a laptop CPU. A cross-encoder
+  trained on web search does not transfer to scientific claims. Reranking stays a measured
+  option, off for this kind of corpus, and a domain reranker is an open item below.
+
+### FinanceBench: real company 10-Ks, through docparse, with permissions
+
+`make financebench` downloads six annual reports from
+[FinanceBench](https://github.com/patronus-ai/financebench) (AMD, American Express, Boeing,
+PepsiCo, Amcor, 3M: 1,482 pages, 5,911 chunks after docparse), gives each filing to that
+company's analyst group only, and asks the 33 FinanceBench questions about them. Seven more cases
+ask the same questions as another company's analyst, who must be refused. Recall is scored at
+**page** level against the pages FinanceBench cites as evidence. Generation `claude-sonnet-5-5`,
+judge `claude-opus-5-5`:
+
+| config | page recall@k | MRR | correct | refused | ACL refused | leak rate | p50 ms | $/query |
+|---|---|---|---|---|---|---|---|---|
+| dense-only (k=10) | 0.227 | 0.120 | 0.103 | 79% | 7/7 | **0.000** | 1942 | $0.009 |
+| bm25-only (k=10) | 0.273 | 0.158 | 0.000 | 88% | 7/7 | **0.000** | 1983 | $0.010 |
+| hybrid-rrf (k=10) | 0.212 | 0.101 | 0.113 | 73% | 7/7 | **0.000** | 2035 | $0.013 |
+| hybrid-rerank (k=10) | 0.364 | 0.194 | 0.191 | 64% | 7/7 | **0.000** | 6956 | $0.013 |
+| **hybrid, k=30** | **0.652** | 0.232 | **0.529** | 27% | 7/7 | **0.000** | 5026 | $0.060 |
+
+What it says:
+
+- **Permissions hold on real filings.** Every cross-company question was refused and no filing
+  ever reached the wrong analyst, in every config.
+- **Ten chunks is too few for a 10-K.** With ten chunks the grader correctly finds the needed
+  table missing and the system refuses rather than invent a number. Thirty chunks lifts the
+  right page into the window 65% of the time and correct answers to 53%. For scale, the
+  FinanceBench paper reports 19% correct and 68% refused for GPT-4 Turbo over a shared index
+  ([Islam et al., 2023](https://arxiv.org/abs/2311.11944)). The comparison is indicative only:
+  that run used the full 150-question sample over many more filings; this one uses 33 over six.
+- **Refusal beats hallucination.** Most wrong rows are refusals, not invented figures.
+- **It found a real ingestion bug first.** The first 10-K crashed docparse: SEC filings render
+  checkboxes as NUL characters, which collided with an internal marker. Fixed with a regression
+  test in docparse.
+
+Next config, built and not yet measured on all 40 cases: `claude-retrieval` puts Claude inside
+retrieval. Haiku reranks 60 candidates listwise, and the question is rewritten, paraphrased and
+expanded with HyDE. Neighbouring chunks are pulled in so split tables arrive whole. On a 3M
+segment question that every k=10 config refused, it answered with the organic-sales table cited.
+That is one question, not a result.
 
 ## Status
 
@@ -140,7 +206,10 @@ With the offline hashing embedder (what CI runs) the same four configs give reca
 - [x] contextual chunks, query rewrite / multi-query / HyDE, agentic grade-rewrite-retry
 - [x] grounded answers with verified citations, refusal, audit trail
 - [x] eval harness with leak gate in CI; 17 tests against real pgvector
-- [ ] BEIR / NFCorpus adapter so retrieval configs are ranked on a corpus that does not saturate
+- [x] BEIR adapter (`make beir`), SciFact table above; real BM25 via ParadeDB `pg_search`
+- [ ] reranker that helps on SciFact (bge-reranker on a GPU, or Cohere), full 300-claim run
+- [x] FinanceBench: six real 10-Ks via docparse, page-level recall, cross-company ACL cases
+- [ ] `claude-retrieval` (LLM rerank + HyDE + siblings) measured on all 40 FinanceBench cases
 - [ ] judge calibration: 50 human-labelled cases, Cohen's κ against the LLM judge
 - [ ] knowledge-graph retrieval mode (LightRAG-style local/global) behind the same `SearchIndex` port
 - [ ] streaming answers, Redis cache for repeated questions

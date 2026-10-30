@@ -51,3 +51,12 @@ async def test_hybrid_hits_carry_both_ranks(container, tenant, seeded):
     assert top.source_name == "deployment-runbook.md"
     assert top.scores.sparse_rank is not None and top.scores.dense_rank is not None and top.scores.rrf
     assert [s.name for s in trace.steps] == ["embed", "hybrid_search", "rerank"]
+
+
+async def test_sparse_matches_long_questions_with_missing_words(container, tenant, seeded):
+    """Regression: the old full-text query ANDed every word, so long questions got no sparse hits."""
+    hits, _ = await container.search(
+        tenant, "alice", "what should an on-call engineer type to perform a deployctl rollback quickly"
+    )
+    assert any(h.scores.sparse_rank is not None for h in hits)
+    assert hits[0].source_name == "deployment-runbook.md"

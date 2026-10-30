@@ -15,6 +15,9 @@ class EvalCase(BaseModel):
     expected_answer: str | None = None
     relevant_chunk_ids: list[str] = Field(default_factory=list)
     relevant_document_ids: list[str] = Field(default_factory=list)
+    relevant_pages: dict[str, list[int]] = Field(
+        default_factory=dict, description="source_name -> evidence pages; rank metrics at page level"
+    )
     forbidden_document_ids: list[str] = Field(
         default_factory=list, description="must never be retrieved for this user"
     )

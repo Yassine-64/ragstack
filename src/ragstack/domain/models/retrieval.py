@@ -7,7 +7,7 @@ from .chunk import Chunk
 
 class Scores(BaseModel):
     dense: float | None = None  # cosine similarity
-    sparse: float | None = None  # ts_rank_cd
+    sparse: float | None = None  # BM25 (pg_search)
     dense_rank: int | None = None
     sparse_rank: int | None = None
     rrf: float | None = None

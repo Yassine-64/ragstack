@@ -7,7 +7,11 @@ import re
 from ragstack.domain.models import Answer, RetrievedChunk
 from ragstack.domain.ports import LLM, ChatMessage
 
-_NUM = re.compile(r"([01](?:\.\d+)?)")
+_NUM = re.compile(r"(?<![\d.])([01](?:\.\d+)?)(?![\d.])")
+_SYSTEM = (
+    "You are a strict grader. Reply with one number between 0 and 1 and nothing else: "
+    "no words, no explanation, no markdown."
+)
 
 _FAITHFUL = """Passages:
 {passages}
@@ -39,9 +43,12 @@ class Judge:
         self.llm = llm
 
     async def _score(self, prompt: str) -> float:
-        out = await self.llm.complete([ChatMessage("user", prompt)], max_tokens=10)
-        m = _NUM.search(out.text)
-        return min(1.0, max(0.0, float(m.group(1)))) if m else 0.0
+        out = await self.llm.complete(
+            [ChatMessage("system", _SYSTEM), ChatMessage("user", prompt)], max_tokens=64
+        )
+        nums = _NUM.findall(out.text)
+        # models that explain anyway put the verdict last; an unparseable reply is "not applicable"
+        return min(1.0, max(0.0, float(nums[-1]))) if nums else float("nan")
 
     async def faithfulness(self, answer: Answer, evidence: list[RetrievedChunk]) -> float:
         if answer.refused:

@@ -11,14 +11,14 @@ the contract; the README is the tour.
    query rewriting, agentic retry) is a config value, and the eval harness reports what it buys.
 3. **Grounded.** Answers cite chunk ids that were actually shown to the model; citations resolve
    to document, page and bounding box (provenance comes from docparse). Weak evidence → refusal.
-4. **Boring infrastructure.** One Postgres with pgvector holds chunks, vectors, full-text index,
+4. **Boring infrastructure.** One Postgres (pgvector + ParadeDB `pg_search`) holds chunks, vectors, the BM25 index,
    ACLs, audit log and eval runs. No second datastore until a measurement says so.
 
 ## 2. Pipeline
 
 ```
 ingest:  file ─docparse─▶ blocks+provenance ─chunker─▶ chunks ─contextualizer(LLM, optional)─▶
-         contextual chunks ─embedder─▶ vectors ─▶ Postgres (chunks + tsvector + vector + ACL)
+         contextual chunks ─embedder─▶ vectors ─▶ Postgres (chunks + BM25 index + vector + ACL)
 
 ask:     question ─query planner─▶ {rewritten, sub-queries, hyde?}
          ─hybrid search (per query; SQL CTE: ACL ∩ (dense top-N ∪ sparse top-N))─▶ candidates
@@ -46,7 +46,7 @@ users(id, tenant_id)                         groups(id, tenant_id)        group_
 documents(id, tenant_id, source_name, media_type, metadata jsonb, created_at, deleted_at)
 access_grants(document_id, principal_type user|group|everyone, principal_id)   -- deny by default
 chunks(id, document_id, idx, section_path text[], page, bbox jsonb, text, context, token_count,
-       embedding vector(D), tsv tsvector GENERATED (context || text), parent_id)
+       embedding vector(D), parent_id)   -- BM25 index over (context || ' ' || text)
 queries(id, tenant_id, user_id, question, config jsonb, trace jsonb, created_at)
 retrievals(query_id, chunk_id, rank, scores jsonb)        -- audit: who was shown what
 eval_runs(id, name, config jsonb, metrics jsonb, created_at)
@@ -55,6 +55,12 @@ eval_runs(id, name, config jsonb, metrics jsonb, created_at)
 Hybrid search is one statement: resolve the caller's principals → `visible` CTE of document ids →
 dense top-N and sparse top-N restricted to `visible` → returned together with both ranks. RRF
 happens in the application layer so the fusion rule is unit-testable and swappable.
+
+The sparse branch is BM25 from ParadeDB `pg_search` (Tantivy inside Postgres), matched with
+`|||` so raw user text is tokenized, never parsed as query syntax. Known limit: BM25 corpus
+statistics (IDF) are computed over the whole `chunks` table, not per tenant. Rankings stay
+correct, but one tenant's documents nudge another's scores. Partition `chunks` by tenant if
+that matters.
 
 ## 5. Retrieval config (what the evals vary)
 

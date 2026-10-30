@@ -7,7 +7,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: pgvector/pgvector:pg16
+        image: paradedb/paradedb:0.26.2-pg16
         env: { POSTGRES_USER: ragstack, POSTGRES_PASSWORD: ragstack, POSTGRES_DB: ragstack }
         ports: ["5433:5432"]
         options: >-
