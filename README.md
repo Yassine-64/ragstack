@@ -58,11 +58,11 @@ model download. Design notes and the data model: [docs/ARCHITECTURE.md](docs/ARC
 ```mermaid
 flowchart LR
     Q[question] --> P[query planner<br/>rewrite · multi-query · HyDE]
-    P --> H[(Postgres<br/>ACL CTE ∩ dense ∪ sparse)]
-    H --> F[RRF k=60] --> R[rerank 150→20] --> G{grade<br/>enough evidence?}
+    P --> H[("Postgres<br/>ACL CTE ∩ dense ∪ sparse")]
+    H --> F["RRF k=60"] --> R["rerank 150→20"] --> G{"grade<br/>enough evidence?"}
     G -- no, retries left --> W[rewrite] --> H
-    G -- yes --> A[grounded answer<br/>cite [n]] --> V[verify citations ⊂ evidence] --> OUT[Answer or refusal]
-    A --> AU[(audit: who saw what)]
+    G -- yes --> A["grounded answer<br/>cite with [n]"] --> V["verify citations ⊂ evidence"] --> OUT["Answer or refusal"]
+    A --> AU[("audit: who saw what")]
 ```
 
 ## Quick start
