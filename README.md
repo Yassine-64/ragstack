@@ -1,10 +1,15 @@
 # ragstack
 
-Permission-aware hybrid RAG where every design knob is a config value and every config gets a
-number. One Postgres (pgvector + ParadeDB `pg_search` for BM25), nothing else. Access control is enforced inside the retrieval SQL, answers
-cite the chunks they were built from (down to page and bounding box, via
-[docparse](https://github.com/Yassine-64/docparse)), weak evidence refuses instead of guessing,
-and `ragstack eval` prints the comparison table that this README's numbers come from.
+**A measured, permission-aware RAG reference implementation** for experimenting with retrieval
+strategies under real document-level access control.
+
+Every design knob is a config value and every config gets a number. One Postgres (pgvector +
+ParadeDB `pg_search` for BM25), nothing else. Access control is enforced inside the retrieval SQL,
+so a document a user cannot open is never retrieved, ranked or shown. Answers cite the chunks they
+were built from, down to page and, where the parser provides it, bounding box (via
+[docparse](https://github.com/Yassine-64/docparse)). Weak evidence refuses instead of guessing. On
+six real 10-K filings ([FinanceBench](#financebench-real-company-10-ks-through-docparse-with-permissions))
+the best config answers 66% correctly with zero cross-company leaks.
 
 ```
 $ ragstack ask "What command rolls back a service deployment?" --user alice
