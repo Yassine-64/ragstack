@@ -234,4 +234,4 @@ column is left out here rather than guessed.
 make check        # ruff + mypy --strict + pytest (integration tests use testcontainers or RAGSTACK_TEST_DATABASE_URL)
 ```
 
-MIT.
+[MIT](LICENSE).
